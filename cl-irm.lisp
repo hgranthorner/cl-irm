@@ -2,52 +2,52 @@
 
 (in-package #:cl-irm)
 
-(defvar *roster* '("Bob"
-                   "Alice"
-                   "Peter"
-                   "Lisper 313373"))
 
-(defun draw-roster (&key frame)
-  (draw-box frame)
-  (put-text frame 0 3 "Online")
+(defun paint ()
+  "Paint an asterisk at the cursor, or erase the one already painted."
+  ;; We don't want to move the cursor when we paint.
+  (charms:with-restored-cursor charms:*standard-window*
+    (charms:write-char-at-cursor
+     charms:*standard-window*
+     (if (char/= #\Space (charms:char-at-cursor charms:*standard-window*))
+         #\Space
+         #\*))))
 
-  (loop for name in *roster*
-        for row upfrom 1
-        do (put-text frame row 1 name)))
+;;; Main driver
 
-(define-frame main (container-frame :split-type :horizontal) :on :root)
+(defun main (&rest args)
+  "Start the timer program."
+  (setf slynk:*globally-redirect-io* t)
+  (slynk:create-server :port 4008)
+  (charms:with-curses ()
+    (charms:disable-echoing)
+    (charms:enable-raw-input :interpret-control-characters t)
+    (charms:enable-non-blocking-mode charms:*standard-window*)
 
-(define-frame roster (simple-frame :render #'draw-roster) :on main :w 20)
+    (loop :named driver-loop
+          :with x := 0                  ; Cursor X coordinate
+          :with y := 0                  ; Cursor Y coordinate
+          :for c := (charms:get-char charms:*standard-window*
+                                     :ignore-error t)
+          :do (progn
+                ;; Refresh the window
+                (charms:refresh-window charms:*standard-window*)
 
-(define-frame chat (container-frame :split-type :vertical) :on main)
+                ;; Process input
+                (case c
+                  ((nil) nil)
+                  ((#\w) (decf y))
+                  ((#\a) (decf x))
+                  ((#\s) (incf y))
+                  ((#\d) (incf x))
+                  ((#\Space) (paint))
+                  ((#\q #\Q) (return-from driver-loop)))
 
-(define-frame log (log-frame) :on chat)
+                ;; Normalize the cursor coordinates
+                (multiple-value-bind (width height)
+                    (charms:window-dimensions charms:*standard-window*)
+                  (setf x (mod x width)
+                        y (mod y height)))
 
-;; Edit-frame implements a single-line text editor.
-;; It will misbehave if its height is not 1.
-(define-frame input (edit-frame :prompt "> ") :on chat :h 1)
-
-(defun finish-input ()
-  ;; Get text from edit-frame
-  (let ((text (get-text 'input)))
-    ;; Append it to the log-frame
-    (append-line 'log text)
-    ;; And clear the text in edit-frame
-    (clear-text 'input)))
-
-
-(defun start (&rest args)
-  (with-screen ()
-    (append-line 'log "Enter some text.")
-    (append-line 'log "Esc to quit")
-    (loop
-      (refresh)
-      (let ((key (read-key)))
-        (case key
-          ;; Esc and Newline are handled here
-          (#\Esc (return))
-          (#\Newline (finish-input))
-          (:key-up (cl-tui:scroll-log 'log 1))
-          (:key-down (cl-tui:scroll-log 'log -1))
-          ;; Everything else is sent to the edit-frame.
-          (t (handle-key 'input key)))))))
+                ;; Move the cursor to the new location
+                (charms:move-cursor charms:*standard-window* x y)))))

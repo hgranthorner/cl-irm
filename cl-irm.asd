@@ -10,6 +10,7 @@
   :build-pathname "cl-irm"
   :entry-point "cl-irm:start"
   :depends-on (#:alexandria
-               #:cl-tui)
+               #:cl-charms
+               #:slynk)
   :components ((:file "package")
                (:file "cl-irm")))
